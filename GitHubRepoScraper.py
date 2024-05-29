@@ -28,11 +28,14 @@ def search_for_text(files, text):
                 
                 start = (i*min_length)-index
                 if content[start:start+len(val)] == val or content[start-1:start+len(val)-1] == val:
+                    print(f"Found {val} in file {file.name}!")
                     passing_files.append(file)
                     passes = True
                     break
                 
     return passing_files
+
+###START OF SCRIPT
 
 auth = Auth.Token("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")
 g = Github(auth=auth)
@@ -75,7 +78,6 @@ print("Done checking repos!")
 #Update header references
 print("\nUpdating header references...")
 passing_headers = search_for_text(header_files, libraries_to_check)
-libraries_to_check += [f.name for f in passing_headers]
 print("Done!")
             
 #Find all files with specified text/desired libraries included
@@ -101,6 +103,27 @@ for file in target_files:
             
             start = (i*min_length)-index
             if content[start:start+len(header)] == header or content[start-1:start+len(header)-1] == header:
+                print(f"Found {header}!", end="")
+                passing_files.append(file)
+                passes = True
+                break
+            
+        for local_header in passing_headers:
+            if local_header.repository != file.repository: continue
+            header = local_header.name #Reassigning name because I'm lazy
+            
+            #Figure out if c is in header and if header is in file
+            index = header.find(c)
+            if index<0: break #wrong character
+            header_found = False
+            
+            for j in range(len(header)):
+                if header[j] == c:
+                    start = (i*min_length) - j
+                    header_found = content[start:start+len(header)] == header
+                if header_found: break
+                    
+            if header_found:
                 print(f"Found {header}!", end="")
                 passing_files.append(file)
                 passes = True
