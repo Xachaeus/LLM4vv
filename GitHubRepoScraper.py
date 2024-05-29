@@ -1,12 +1,29 @@
 from github import Auth, Github
+import time
 
-repos_to_scrape = ["UD-CRPL/ppm_one", "matt-stack/PhysiCell_GPU"]
+repos_to_scrape = ["UD-CRPL/ppm_one", "matt-stack/PhysiCell_GPU", "uhhpctools/openacc-npb",
+                   "NCAR/MURaM_main"]
 extensions_to_check = [".cpp",".c"]
 headers_to_check = [".h"]
 libraries_to_check = ["omp.h", "openacc.h"]
 destination_file = "Test_Files/Passing_C-CPP_Codes.txt"
 file_separator = "\n########## NEXT FILE ##########\n"
 
+
+def search_for_text_alt(files, text):
+    passing_files = []
+    for file in files:
+        try:
+            content = file.decoded_content.decode()
+        except:
+            continue
+        
+        for val in text:
+            if content.find(val) > 0:
+                print(f"Found {val} in file {file.name}!")
+                passing_files.append(file)
+                break
+    return passing_files
 
 def search_for_text(files, text):
     passing_files = []
@@ -43,6 +60,7 @@ g = Github(auth=auth)
 target_files = []
 header_files = []
 
+#requires 
 for name in repos_to_scrape:
     print(f"Checking repo {name}...")
     repo = g.get_repo(name)
@@ -77,7 +95,9 @@ print("Done checking repos!")
 
 #Update header references
 print("\nUpdating header references...")
-passing_headers = search_for_text(header_files, libraries_to_check)
+
+passing_headers = search_for_text_alt(header_files, libraries_to_check)
+
 print("Done!")
             
 #Find all files with specified text/desired libraries included
@@ -85,14 +105,32 @@ passing_files = passing_headers
 min_length = min([len(s) for s in libraries_to_check])
 
 for file in target_files:
-    print(f"Checking file {file.name}... ", end="")
-    passes = False #break out of loop if file passes
+    passes = False
+    print(f"Checking file {file.repository.name}/{file.name}... ", end="")
+    #passes = False #break out of loop if file passes
     try:
         content = file.decoded_content.decode()
     except:
         print("Failure to read file!")
         continue
-        
+    
+    for header in libraries_to_check:
+        if content.find(header)>0:
+            print(f"Found {header}!", end="")
+            passing_files.append(file)
+            passes = True
+            break
+    if passes: continue
+    for local_header in passing_headers:
+        if local_header.repository != file.repository: continue
+        header = local_header.name
+        if content.find(header)>0:
+            print(f"Found {header}!", end="")
+            passing_files.append(file)
+            break
+    
+    print("")
+    """  
     length = len(content)
     for i in range(length//min_length): #iterate every x characters
         if passes: break
@@ -128,9 +166,9 @@ for file in target_files:
                 passing_files.append(file)
                 passes = True
                 break
-    print("")
+    """
 
-print("\nDone checking files! Passing files are:\n" + '\n'.join([f.name for f in passing_files]))
+print("\nDone checking files! Passing files are:\n" + '\n'.join([f"{f.repository.name}/{f.name}" for f in passing_files]))
             
 #Write passing files to single text file   
 full_string = ""
