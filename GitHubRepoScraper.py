@@ -1,12 +1,14 @@
 from github import Auth, Github
-import time, json
+from numba import cuda
+import time, json, GetRepo
+import numpy as np
 
-repos_to_scrape = ["OpenACCUserGroup/OpenACCV-V", "UD-CRPL/ppm_one", "matt-stack/PhysiCell_GPU", "uhhpctools/openacc-npb",
-                   "NCAR/MURaM_main", ]
+repos_to_scrape = ["OpenACCUserGroup/OpenACCV-V"]#, "UD-CRPL/ppm_one", "matt-stack/PhysiCell_GPU", "uhhpctools/openacc-npb",
+                   #"NCAR/MURaM_main", ]
 extensions_to_check = [".cpp",".c", ".F90"]
 headers_to_check = [".h", ".Fh"]
 c_libraries_to_check = ["omp.h", "openacc.h", "#pragma omp", "#pragma acc"]
-f_libraries_to_check = ["USE OPENACC", "USE OPENMP"]
+f_libraries_to_check = ["USE OPENACC", "USE omp_lib"]
 destination_file = "Test_Files/Passing_C-CPP_Codes.txt"
 file_separator = "\n########## NEXT FILE ##########\n"
 do_logging = True
@@ -14,7 +16,6 @@ do_logging = True
 
 
 class Clock:
-    
     def __init__(self):
         self.start_time = time.time()
     
@@ -74,6 +75,15 @@ def advanced_search(files, libraries, headers):
                 break
     return passing_files
 
+@cuda.jit
+def get_content(arr, dest_arr):
+    index = cuda.grid(1)
+    if index < arr.shape[0]:
+        if(arr[index][0] == "a"):
+            dest_arr[index] = 1
+        else:
+            dest_arr[index] = 0
+
 ###START OF SCRIPT
 
 clock = Clock()
@@ -122,6 +132,12 @@ log("Done checking repos!")
 clock.log()
 clock.reset()
 
+files_arr = np.array([f.name for f in c_target_files])
+dest_arr = files_arr
+new_arr = cuda.to_device(files_arr)
+get_content[512,64](files_arr, dest_arr)
+#files_arr = dest_arr.copy_to_host()
+print(dest_arr)
 #Update header references
 log("\nUpdating header references...")
 
