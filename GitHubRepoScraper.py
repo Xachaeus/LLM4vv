@@ -181,8 +181,12 @@ if __name__=="__main__":
     #log("Getting file contents...")
     #contents = pool.map(check_content, c_target_files)
     log("Getting parent repos...")
-    [f.repository for f in c_target_files]
+    
+    [f.repository for f in c_target_files] #This line fixes everything for some reason
+    
     repos = pool.map(check_repo, c_target_files)
+    
+    quit()
     
     header_names = pool.map(check_name, c_passing_headers)
     header_repos = pool.map(check_repo, c_passing_headers)
