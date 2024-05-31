@@ -1,7 +1,8 @@
 from github import Auth, Github
-from numba import cuda
 import time, json, GetRepo
 import numpy as np
+import multiprocessing as mp
+from functools import partial
 
 repos_to_scrape = ["OpenACCUserGroup/OpenACCV-V"]#, "UD-CRPL/ppm_one", "matt-stack/PhysiCell_GPU", "uhhpctools/openacc-npb",
                    #"NCAR/MURaM_main", ]
@@ -9,7 +10,7 @@ extensions_to_check = [".cpp",".c", ".F90"]
 headers_to_check = [".h", ".Fh"]
 c_libraries_to_check = ["omp.h", "openacc.h", "#pragma omp", "#pragma acc"]
 f_libraries_to_check = ["USE OPENACC", "USE omp_lib"]
-destination_file = "Test_Files/Passing_C-CPP_Codes.txt"
+destination_file = "Test_Files/Passing_Codes.txt"
 file_separator = "\n########## NEXT FILE ##########\n"
 do_logging = True
 
@@ -75,97 +76,131 @@ def advanced_search(files, libraries, headers):
                 break
     return passing_files
 
-@cuda.jit
-def get_content(arr, dest_arr):
-    index = cuda.grid(1)
-    if index < arr.shape[0]:
-        if(arr[index][0] == "a"):
-            dest_arr[index] = 1
-        else:
-            dest_arr[index] = 0
+
+
+def single_advanced_search(libraries, headers, header_repos, file, file_repo):
+    if file is None: return None    
+    return_val = None
+    
+    for header in libraries:
+        if file.find(header)>0:
+            return file
+    
+    for header in headers:
+        if header_repos[headers.index(header)] != file_repo: continue
+        header = local_header.name
+        if file.find(header)>0:
+            return file
+    
+    return return_val
+
+def check_content(file):
+    if file is None: return None
+    return file.decoded_content.decode()
+
+def check_repo(file):
+    if file.repository is None: print(f"File {file} failed!"); return None
+    print(file.repository.name)
+    return file.repository.name
+
+def check_name(file):
+    
+    return file.name
+
+
 
 ###START OF SCRIPT
 
-clock = Clock()
+if __name__=="__main__":
 
-auth = Auth.Token("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")
-g = Github(auth=auth)
+    clock = Clock()
 
-c_target_files = []
-f_target_files = []
-c_header_files = []
-f_header_files = []
-#requires
-clock.reset()
-for name in repos_to_scrape:
-    log(f"Getting content from repo {name}...")
-    repo = g.get_repo(name)
-    contents = repo.get_contents("")
-    files = []
-    
-    #Get all files in repo
-    while contents:
-        file_content = contents.pop(0)
-        if file_content.type == "dir":
-            contents.extend(repo.get_contents(file_content.path))
-        else: files.append(file_content)
+    auth = Auth.Token("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")
+    g = Github(auth=auth)
 
-
-    #Find all files with desired file extensions
+    c_target_files = []
+    c_target_file_repos = []
+    f_target_files = []
+    c_header_files = []
+    f_header_files = []
+    #requires
+    clock.reset()
+    for name in repos_to_scrape:
+        log(f"Getting content from repo {name}...")
+        repo = g.get_repo(name)
+        contents = repo.get_contents("")
+        files = []
         
-    for file in files:
-        for extension in extensions_to_check:
-            try:
-                if file.name[-(len(extension)):] == extension :
-                    c_target_files.append(file) if extension!=".F90" else f_target_files.append(file)
-                    break
-            except: pass
-        for header in headers_to_check:
-            try:
-                if file.name[-(len(header)):] ==  header:
-                    c_header_files.append(file) if header!=".Fh" else f_target_files.append(file)
-                    break
-            except: pass
+        #Get all files in repo
+        while contents:
+            file_content = contents.pop(0)
+            if file_content.type == "dir":
+                contents.extend(repo.get_contents(file_content.path))
+            else: files.append(file_content)
+
+
+        #Find all files with desired file extensions
             
-
-log("Done checking repos!")
-clock.log()
-clock.reset()
-
-files_arr = np.array([f.name for f in c_target_files])
-dest_arr = files_arr
-new_arr = cuda.to_device(files_arr)
-get_content[512,64](files_arr, dest_arr)
-#files_arr = dest_arr.copy_to_host()
-print(dest_arr)
-#Update header references
-log("\nUpdating header references...")
-
-c_passing_headers = search_for_text(c_header_files, c_libraries_to_check)
-f_passing_headers = search_for_text(f_header_files, f_libraries_to_check)
-
-log("Done!")
-clock.log()
-            
-#Find all files with specified text/desired libraries included
-passing_files = c_passing_headers + f_passing_headers
-#min_length = min([len(s) for s in c_libraries_to_check])
-clock.reset()
-passing_files += advanced_search(c_target_files, c_libraries_to_check, c_passing_headers)
-passing_files += advanced_search(f_target_files, f_libraries_to_check, f_passing_headers)
+        for file in files:
+            for extension in extensions_to_check:
+                try:
+                    if file.name[-(len(extension)):] == extension :
+                        c_target_files.append(file) if extension!=".F90" else f_target_files.append(file)
+                        break
+                except: pass
+            for header in headers_to_check:
+                try:
+                    if file.name[-(len(header)):] ==  header:
+                        c_header_files.append(file) if header!=".Fh" else f_target_files.append(file)
+                        break
+                except: pass
+                
 
 
 
-log("\n\nDone checking files! Passing files are:\n" + '\n'.join([f"{f.repository.name}/{f.name}" for f in passing_files]))
-clock.log()
+    log("Done checking repos!")
+    clock.log()
+    clock.reset()
 
-final_string = ""
-for file in passing_files:
-    final_string += file_separator + "::: " + file.name + " :::\n" + file.decoded_content.decode()
-with open(destination_file, 'w') as f:
-    f.write(final_string)
-            
+    #Update header references
+    log("\nUpdating header references...")
+
+    c_passing_headers = search_for_text(c_header_files, c_libraries_to_check)
+    f_passing_headers = search_for_text(f_header_files, f_libraries_to_check)
+
+    log("Done!")
+    clock.log()
+                
+    #Find all files with specified text/desired libraries included
+    passing_files = c_passing_headers + f_passing_headers
+    #min_length = min([len(s) for s in c_libraries_to_check])
+    clock.reset()
+
+    pool = mp.Pool()
     
+    #log("Getting file contents...")
+    #contents = pool.map(check_content, c_target_files)
+    log("Getting parent repos...")
+    [f.repository for f in c_target_files]
+    repos = pool.map(check_repo, c_target_files)
+    
+    header_names = pool.map(check_name, c_passing_headers)
+    header_repos = pool.map(check_repo, c_passing_headers)
+    
+    c_search = partial(single_advanced_search, c_libraries_to_check, header_names, header_repos)
+    passing_files = pool.starmap(c_search, zip(contents, repos))
 
-g.close()
+    #log("\n\nDone checking files! Passing files are:\n" + '\n'.join([f"{f.repository.name}/{f.name}" for f in passing_files]))
+    clock.log()
+
+    clock.reset()
+    final_string = ""
+    for file in passing_files:
+        if file is not None: final_string += file_separator + file
+    with open(destination_file, 'w') as f:
+        f.write(final_string)
+                
+    clock.log()
+
+    g.close()
 
